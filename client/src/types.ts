@@ -1,5 +1,12 @@
 export type RiskTier = "low" | "elevated" | "high" | "unknown";
 
+export type SanctionsGoodsHint = {
+  id: string;
+  label: string;
+  note: string;
+  sanctionsMapUrl: string;
+};
+
 export type GoodsBucket =
   | "general"
   | "dual_use"

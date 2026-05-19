@@ -6,6 +6,7 @@
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "strict": true,
+    "resolveJsonModule": true,
     "jsx": "react-jsx",
     "types": ["vite/client"]
   },

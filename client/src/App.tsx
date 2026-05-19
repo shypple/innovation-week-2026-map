@@ -1,19 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { RiskMap } from "./components/RiskMap";
-import type { EvaluateResponse, GoodsBucket, ParseAndEvaluateResponse, RiskTier } from "./types";
+import { useCallback, useEffect, useState } from "react";
+import { RiskMap, type CountryClickPayload } from "./components/RiskMap";
+import type { CountryTooltipState } from "./components/CountryTooltip";
+import type { EvaluateResponse, ParseAndEvaluateResponse, RiskTier, SanctionsGoodsHint } from "./types";
 
-const GOODS: { value: GoodsBucket; label: string }[] = [
-  { value: "general", label: "General cargo" },
-  { value: "dual_use", label: "Dual-use / export-control sensitive" },
-  { value: "defense", label: "Defense / military" },
-  { value: "energy_oil_gas", label: "Energy (oil & gas)" },
-  { value: "financial", label: "Financial / services" },
-  { value: "luxury_consumer", label: "Luxury / consumer (sanctions-sensitive categories)" },
-  { value: "tech_software", label: "Technology / software" },
-  { value: "unknown", label: "Unknown / not classified" },
-];
-
-function tierBadge(tier: RiskTier): { bg: string; fg: string } {
+function tierBadge(tier: string): { bg: string; fg: string } {
   if (tier === "high") return { bg: "#fee2e2", fg: "#991b1b" };
   if (tier === "elevated") return { bg: "#ffedd5", fg: "#9a3412" };
   if (tier === "low") return { bg: "#dcfce7", fg: "#166534" };
@@ -22,8 +12,10 @@ function tierBadge(tier: RiskTier): { bg: string; fg: string } {
 
 export default function App() {
   const [tiers, setTiers] = useState<Record<string, RiskTier>>({});
-  const [destinationIso2, setDestinationIso2] = useState<string>("DE");
-  const [goodsBucket, setGoodsBucket] = useState<GoodsBucket>("general");
+  const [goodsHints, setGoodsHints] = useState<SanctionsGoodsHint[]>([]);
+  const [sanctionsMapUrl, setSanctionsMapUrl] = useState("https://www.sanctionsmap.eu/");
+  const [selectedIso2, setSelectedIso2] = useState<string | null>(null);
+  const [mapTooltip, setMapTooltip] = useState<CountryTooltipState | null>(null);
   const [freeText, setFreeText] = useState<string>(
     "Customer asks if we can ship dual-use electronics from NL to CN for Acme Corp.",
   );
@@ -37,12 +29,26 @@ export default function App() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/map-risk");
-        if (!res.ok) throw new Error(`map-risk ${res.status}`);
-        const data = (await res.json()) as { tiers: Record<string, RiskTier> };
-        if (!cancelled) setTiers(data.tiers);
+        const [mapRes, hintsRes] = await Promise.all([
+          fetch("/api/map-risk"),
+          fetch("/api/sanctions-goods-hints"),
+        ]);
+        if (!mapRes.ok) throw new Error(`map-risk ${mapRes.status}`);
+        const mapData = (await mapRes.json()) as { tiers: Record<string, RiskTier> };
+        if (!cancelled) setTiers(mapData.tiers);
+
+        if (hintsRes.ok) {
+          const hintsData = (await hintsRes.json()) as {
+            hints: SanctionsGoodsHint[];
+            sanctionsMapUrl: string;
+          };
+          if (!cancelled) {
+            setGoodsHints(hintsData.hints);
+            setSanctionsMapUrl(hintsData.sanctionsMapUrl);
+          }
+        }
       } catch {
-        if (!cancelled) setStatus("Could not load map tiers — is the API running on :8787?");
+        if (!cancelled) setStatus("Could not load map data — is the API running on :8787?");
       }
     })();
     return () => {
@@ -50,31 +56,16 @@ export default function App() {
     };
   }, []);
 
-  const selectedIso2 = useMemo(() => destinationIso2.toUpperCase(), [destinationIso2]);
-
-  const runEvaluate = useCallback(async () => {
-    setBusy(true);
-    setStatus(null);
-    try {
-      const res = await fetch("/api/evaluate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          destinationIso2: selectedIso2,
-          goodsBucket,
-        }),
-      });
-      if (!res.ok) throw new Error(`evaluate ${res.status}`);
-      const data = (await res.json()) as EvaluateResponse;
-      setEvaluate(data);
-      setUsedLlm(null);
-      setLlmCacheHit(false);
-    } catch {
-      setStatus("Evaluate failed — check API logs.");
-    } finally {
-      setBusy(false);
-    }
-  }, [goodsBucket, selectedIso2]);
+  const handleCountryClick = useCallback((payload: CountryClickPayload) => {
+    setSelectedIso2(payload.iso2);
+    setMapTooltip({
+      iso2: payload.iso2,
+      name: payload.name,
+      tier: payload.tier,
+      clientX: payload.clientX,
+      clientY: payload.clientY,
+    });
+  }, []);
 
   const runParseAndEvaluate = useCallback(async () => {
     setBusy(true);
@@ -90,9 +81,9 @@ export default function App() {
       setUsedLlm(data.usedLlm);
       setLlmCacheHit(Boolean(data.llmCacheHit));
       if (data.parsed.destinationIso2) {
-        setDestinationIso2(data.parsed.destinationIso2);
+        setSelectedIso2(data.parsed.destinationIso2);
+        setMapTooltip(null);
       }
-      setGoodsBucket(data.parsed.goodsBucket);
       if (data.evaluate) {
         setEvaluate(data.evaluate);
       } else {
@@ -113,9 +104,9 @@ export default function App() {
       <header style={{ marginBottom: 18 }}>
         <h1 style={{ margin: "0 0 6px", fontSize: 28, letterSpacing: -0.4 }}>Sanctions triage</h1>
         <p style={{ margin: 0, color: "var(--muted)", lineHeight: 1.5, maxWidth: 900 }}>
-          Innovation-week demo: structured triage + optional LLM parsing + interactive map.{" "}
-          <strong>Not legal advice</strong> — seeded country tiers are placeholders. Always involve compliance
-          for real shipments.
+          Click a <strong>highlighted</strong> country on the map to see goods categories that often need extra
+          checks under EU restrictive measures. Paste a shipment question below for AI-assisted triage.{" "}
+          <strong>Not legal advice</strong> — demo seed data only.
         </p>
       </header>
 
@@ -130,84 +121,21 @@ export default function App() {
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>EU sanctions context (map)</h2>
-            <div style={{ color: "var(--muted)", fontSize: 13 }}>
-              Click a country to set destination ISO2
-            </div>
+            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>EU sanctions map</h2>
+            <div style={{ color: "var(--muted)", fontSize: 13 }}>Click a country for sensitive goods</div>
           </div>
-          <RiskMap tiers={tiers} selectedIso2={selectedIso2} onSelectIso2={setDestinationIso2} />
+          <RiskMap
+            tiers={tiers}
+            selectedIso2={selectedIso2}
+            tooltip={mapTooltip}
+            goodsHints={goodsHints}
+            sanctionsMapUrl={sanctionsMapUrl}
+            onCountryClick={handleCountryClick}
+            onCloseTooltip={() => setMapTooltip(null)}
+          />
         </section>
 
-        <section
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: 14,
-              padding: 14,
-              background: "var(--card)",
-              boxShadow: "0 8px 30px rgba(15, 23, 42, 0.06)",
-            }}
-          >
-            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>Manual inputs</h2>
-            <label style={{ display: "grid", gap: 6, marginBottom: 10, fontSize: 13 }}>
-              Destination (ISO2)
-              <input
-                value={destinationIso2}
-                onChange={(e) => setDestinationIso2(e.target.value.toUpperCase())}
-                maxLength={2}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: `1px solid var(--border)`,
-                }}
-              />
-            </label>
-
-            <label style={{ display: "grid", gap: 6, marginBottom: 12, fontSize: 13 }}>
-              Goods bucket
-              <select
-                value={goodsBucket}
-                onChange={(e) => setGoodsBucket(e.target.value as GoodsBucket)}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: `1px solid var(--border)`,
-                  background: "white",
-                }}
-              >
-                {GOODS.map((g) => (
-                  <option key={g.value} value={g.value}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <button
-              type="button"
-              onClick={() => void runEvaluate()}
-              disabled={busy || selectedIso2.length !== 2}
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "none",
-                background: busy ? "#94a3b8" : "var(--accent)",
-                color: "white",
-                fontWeight: 600,
-                cursor: busy ? "not-allowed" : "pointer",
-              }}
-            >
-              Run deterministic evaluation
-            </button>
-          </div>
-
+        <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div
             style={{
               border: "1px solid var(--border)",
@@ -266,7 +194,9 @@ export default function App() {
             {status ? (
               <p style={{ margin: 0, color: "#b45309" }}>{status}</p>
             ) : !evaluate ? (
-              <p style={{ margin: 0, color: "var(--muted)" }}>Run an evaluation to see outputs.</p>
+              <p style={{ margin: 0, color: "var(--muted)" }}>
+                Run parse + evaluate, or explore sanctioned countries on the map.
+              </p>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -285,8 +215,7 @@ export default function App() {
                   </span>
                   {usedLlm !== null ? (
                     <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                      Parse:{" "}
-                      {!usedLlm ? "heuristic" : llmCacheHit ? "LLM (cached)" : "LLM"}
+                      Parse: {!usedLlm ? "heuristic" : llmCacheHit ? "LLM (cached)" : "LLM"}
                     </span>
                   ) : null}
                 </div>
@@ -318,7 +247,9 @@ export default function App() {
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Escalation checklist</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+                    Escalation checklist
+                  </div>
                   <ul style={{ margin: 0, paddingLeft: 18 }}>
                     {evaluate.result.checklist.map((item) => (
                       <li key={item} style={{ marginBottom: 6 }}>

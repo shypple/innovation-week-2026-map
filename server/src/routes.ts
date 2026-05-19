@@ -3,6 +3,7 @@ import { evaluateRequestSchema, parseRequestSchema, shipmentTriageRequestSchema 
 import { evaluateShipment } from "./riskEngine.js";
 import { parseShipmentText } from "./ai/parseShipment.js";
 import { COUNTRY_TIER } from "./data/countryRiskSeed.js";
+import { EU_SANCTIONS_MAP_HOME, UNKNOWN_GOODS_EU_HINTS } from "./data/euSanctionsGoodsHints.js";
 import { SERVER_DOTENV_PATH, dotenvLoadResult } from "./loadEnv.js";
 import { goodsBucketLlmCacheStats } from "./ai/goodsBucketLlmCache.js";
 import { parseLlmCacheStats } from "./ai/parseLlmCache.js";
@@ -31,6 +32,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/map-risk", async () => ({
     /** ISO2 → tier for seeded countries only. Others should render as unknown on the client. */
     tiers: COUNTRY_TIER,
+  }));
+
+  app.get("/api/sanctions-goods-hints", async () => ({
+    sanctionsMapUrl: EU_SANCTIONS_MAP_HOME,
+    hints: UNKNOWN_GOODS_EU_HINTS,
   }));
 
   /**
