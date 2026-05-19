@@ -222,6 +222,10 @@ export default function App() {
 
                 <p style={{ margin: 0, lineHeight: 1.6 }}>{evaluate.result.summary}</p>
 
+                <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>
+                  Goods bucket: <code>{evaluate.input.goodsBucket}</code>
+                </p>
+
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Rules</div>
                   <ul style={{ margin: 0, paddingLeft: 18 }}>

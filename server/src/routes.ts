@@ -96,12 +96,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { parsed: shipment, usedLlm, llmError, llmCacheHit } = await parseShipmentText(env, parsed.data);
 
     if (!shipment.destinationIso2) {
+      const hint =
+        shipment.notes?.trim() ||
+        "Could not infer a single destination ISO2. Click a country on the map or shorten the text.";
       return {
         usedLlm,
         parsed: shipment,
         evaluate: null,
-        message:
-          "Destination country not detected. Pick a country on the map or set ISO2 manually, then evaluate.",
+        message: `Destination country not detected. ${hint}`,
         ...(llmCacheHit ? { llmCacheHit } : {}),
         ...(llmError ? { llmError } : {}),
       };

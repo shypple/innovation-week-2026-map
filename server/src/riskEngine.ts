@@ -20,6 +20,15 @@ function baseTierForCountry(iso2: string): RiskTier {
   return COUNTRY_TIER[iso2] ?? "unknown";
 }
 
+function isSensitiveDestination(dest: RiskTier): boolean {
+  return dest === "elevated" || dest === "high";
+}
+
+function bumpToHigh(tier: RiskTier): RiskTier {
+  if (tier === "elevated" || tier === "unknown") return "high";
+  return tier;
+}
+
 export function evaluateShipment(input: EvaluateRequest): EvaluateResult {
   const dest = baseTierForCountry(input.destinationIso2);
   const citations: Citation[] = [];
@@ -49,18 +58,56 @@ export function evaluateShipment(input: EvaluateRequest): EvaluateResult {
   }
 
   let tier: RiskTier = dest;
+  const sensitiveDest = isSensitiveDestination(dest);
 
   if (
     (input.goodsBucket === "dual_use" || input.goodsBucket === "defense") &&
-    (dest === "elevated" || dest === "high")
+    sensitiveDest
   ) {
-    if (tier === "elevated" || tier === "unknown") tier = "high";
+    tier = bumpToHigh(tier);
     ruleIds.push("GOODS_SENSITIVE_DESTINATION");
     citations.push({
       id: "DUAL-USE-PORTAL",
       label: "EU dual-use controls (context)",
       sourceUrl: "https://policy.trade.ec.europa.eu/strategy-and-policy/dual-use-trade_en",
     });
+    checklist.push(
+      "Confirm whether the item is listed or controlled under EU dual-use / military export rules for this destination.",
+    );
+  } else if (input.goodsBucket === "energy_oil_gas" && sensitiveDest) {
+    tier = bumpToHigh(tier);
+    ruleIds.push("GOODS_ENERGY_SECTOR_DEST");
+    citations.push({
+      id: "EU-SANCTIONS-ENERGY",
+      label: "EU sanctions — energy sector (context)",
+      sourceUrl: "https://www.sanctionsmap.eu/",
+    });
+    checklist.push(
+      "Check petroleum / refined-product sectoral measures for the destination (including sample shipments without HS yet).",
+      "Document end-use and end-user; energy-sector trade to listed jurisdictions often needs licensing.",
+    );
+  } else if (input.goodsBucket === "luxury_consumer" && sensitiveDest) {
+    ruleIds.push("GOODS_LUXURY_ELEVATED_DEST");
+    citations.push({
+      id: "EU-SANCTIONS-LUXURY",
+      label: "EU sanctions — luxury / listed goods (context)",
+      sourceUrl: "https://www.sanctionsmap.eu/",
+    });
+    checklist.push(
+      "Verify whether watches, jewellery or other luxury items fall under destination-specific trade restrictions.",
+      "Treat VIP / private-client routing as higher reputational and compliance exposure — document the commercial rationale.",
+    );
+  } else if (input.goodsBucket === "tech_software" && sensitiveDest) {
+    tier = bumpToHigh(tier);
+    ruleIds.push("GOODS_TECH_SECTOR_DEST");
+    citations.push({
+      id: "EU-SANCTIONS-TECH",
+      label: "EU sanctions — advanced technology (context)",
+      sourceUrl: "https://www.sanctionsmap.eu/",
+    });
+    checklist.push(
+      "Screen electronics / software for dual-use or advanced-tech controls toward this destination.",
+    );
   }
 
   const summaryParts = [
@@ -68,6 +115,9 @@ export function evaluateShipment(input: EvaluateRequest): EvaluateResult {
     `Goods bucket: **${input.goodsBucket}**.`,
     `Resulting triage tier: **${tier}**.`,
   ];
+  if (ruleIds.some((id) => id.startsWith("GOODS_"))) {
+    summaryParts.push("Sector-specific goods rules applied on top of destination context.");
+  }
 
   return {
     tier,

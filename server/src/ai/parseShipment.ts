@@ -8,50 +8,54 @@ import {
 } from "./parseLlmCache.js";
 import { goodsBucketFromDescription } from "../goodsBucketHeuristics.js";
 import { chatCompletionJson, parseModelJson } from "./llmJsonUtils.js";
-
-function heuristicParse(text: string): ParsedShipment {
-  const upper = text.toUpperCase();
-  const matches = [...upper.matchAll(/\b([A-Z]{2})\b/g)].map((m) => m[1]);
-  const noise = new Set([
-    "EU",
-    "UN",
-    "US",
-    "UK",
-    "AI",
-    "IT",
-    "HR",
-    "PR",
-    "QC",
-    "OF",
-    "TO",
-    "OR",
-    "IN",
-    "IS",
-    "AT",
-    "BE",
-    "NO",
-    "OK",
-  ]);
-  const isoCandidates = matches.filter((c) => !noise.has(c));
-
-  const goodsBucket = goodsBucketFromDescription(text);
-
-  const destinationIso2 = isoCandidates.at(-1) ?? null;
-
-  return parsedShipmentSchema.parse({
-    destinationIso2,
-    originIso2: isoCandidates.length > 1 ? isoCandidates[0] : null,
-    goodsBucket,
-    parties: [],
-    confidence: 0.35,
-    notes: "Heuristic parse (no LLM). Prefer confirming ISO country codes manually.",
-  });
-}
+import { extractLaneFromText, extractParties } from "./countryExtraction.js";
 
 const SYSTEM_PROMPT = `You extract structured shipping/sanctions triage fields from user text.
 Return ONLY valid JSON matching the schema. Use ISO 3166-1 alpha-2 country codes in uppercase when you can infer a country.
-If unclear, use null for country fields and goodsBucket "unknown".
-confidence is 0..1. parties: organization or person names explicitly mentioned (max 10 short strings).`;
+If multiple destination countries are listed (e.g. "Russia or Belarus"), set destinationIso2 to the plausible discharge country and explain ambiguity in notes.
+If the text says "from DE to ???" treat DE as originIso2 and infer destination from other lines (e.g. a Destination bullet).
+Extract organization names into parties (max 10). Skip vague phrases like "a person on the B/L".
+confidence is 0..1.`;
+
+function heuristicParse(text: string): ParsedShipment {
+  const lane = extractLaneFromText(text);
+  const parties = extractParties(text);
+  const goodsBucket = goodsBucketFromDescription(text);
+
+  return parsedShipmentSchema.parse({
+    destinationIso2: lane.destinationIso2,
+    originIso2: lane.originIso2,
+    goodsBucket,
+    parties,
+    confidence: lane.destinationIso2 ? 0.55 : 0.35,
+    notes:
+      lane.notes.length > 0
+        ? lane.notes.join(" ")
+        : "Heuristic parse (no LLM). Prefer confirming ISO country codes manually.",
+  });
+}
+
+function enrichParsedShipment(parsed: ParsedShipment, text: string): ParsedShipment {
+  const lane = extractLaneFromText(text);
+  const parties = extractParties(text);
+  const goodsBucket =
+    parsed.goodsBucket === "unknown" ? goodsBucketFromDescription(text) : parsed.goodsBucket;
+
+  const mergedNotes = [...new Set([parsed.notes, ...lane.notes].filter(Boolean))].join(" ") || undefined;
+
+  let confidence = parsed.confidence;
+  if (parsed.destinationIso2) confidence = Math.max(confidence, 0.75);
+  else if (lane.destinationIso2) confidence = Math.max(confidence, 0.65);
+
+  return parsedShipmentSchema.parse({
+    destinationIso2: parsed.destinationIso2 ?? lane.destinationIso2,
+    originIso2: parsed.originIso2 ?? lane.originIso2,
+    goodsBucket,
+    parties: parsed.parties.length ? parsed.parties : parties,
+    confidence,
+    notes: mergedNotes,
+  });
+}
 
 function truncate(msg: string, max = 480): string {
   return msg.length <= max ? msg : `${msg.slice(0, max)}…`;
@@ -75,9 +79,7 @@ function formatLlmError(err: unknown): string {
 export type ParseShipmentResult = {
   parsed: ParsedShipment;
   usedLlm: boolean;
-  /** Present when an API key was configured but the LLM path did not produce a valid parse. */
   llmError?: string;
-  /** True when the structured parse was reused from memory (no new LLM request). */
   llmCacheHit?: boolean;
 };
 
@@ -89,9 +91,7 @@ export async function parseShipmentText(
   },
   body: ParseRequest,
 ): Promise<ParseShipmentResult> {
-  const apiKey = env.apiKey?.trim();
-  if (!apiKey) {
-    const parsed = heuristicParse(body.text);
+  const applyHints = (parsed: ParsedShipment): ParsedShipment => {
     if (body.hint?.destinationIso2) {
       parsed.destinationIso2 = body.hint.destinationIso2.toUpperCase();
       parsed.confidence = Math.max(parsed.confidence, 0.55);
@@ -99,7 +99,11 @@ export async function parseShipmentText(
     if (body.hint?.goodsBucket) {
       parsed.goodsBucket = body.hint.goodsBucket;
     }
-    return { parsed, usedLlm: false };
+    return parsed;
+  };
+
+  if (!env.apiKey?.trim()) {
+    return { parsed: applyHints(heuristicParse(body.text)), usedLlm: false };
   }
 
   const model = env.model ?? "gpt-4o-mini";
@@ -107,11 +111,11 @@ export async function parseShipmentText(
   const cacheKey = parseLlmCacheKey(body, model, baseUrl);
   const cached = parseLlmCacheGet(cacheKey);
   if (cached) {
-    return cached;
+    return { parsed: applyHints(enrichParsedShipment(cached.parsed, body.text)), usedLlm: true, llmCacheHit: true };
   }
 
   const client = new OpenAI({
-    apiKey,
+    apiKey: env.apiKey.trim(),
     baseURL: baseUrl,
   });
 
@@ -143,18 +147,21 @@ export async function parseShipmentText(
     if (!raw) {
       console.warn("[parse] Empty LLM message content; falling back to heuristic.");
       return {
-        parsed: heuristicParse(body.text),
+        parsed: applyHints(heuristicParse(body.text)),
         usedLlm: false,
         llmError: "Empty message content from model (check model id and API response shape).",
       };
     }
 
-    const parsed = parsedShipmentSchema.parse(parseModelJson(raw));
+    const parsed = enrichParsedShipment(
+      parsedShipmentSchema.parse(parseModelJson(raw)),
+      body.text,
+    );
     parseLlmCacheSet(cacheKey, parsed);
-    return { parsed, usedLlm: true };
+    return { parsed: applyHints(parsed), usedLlm: true };
   } catch (err) {
     const llmError = formatLlmError(err);
     console.warn("[parse] LLM path failed; falling back to heuristic:", err);
-    return { parsed: heuristicParse(body.text), usedLlm: false, llmError };
+    return { parsed: applyHints(heuristicParse(body.text)), usedLlm: false, llmError };
   }
 }

@@ -6,7 +6,7 @@ export function goodsBucketFromDescription(text: string): GoodsBucket {
   if (/\bMILITARY|\bDEFENSE|\bARMAMENT/i.test(text)) return "defense";
   if (/\bOIL|\bGAS|\bENERGY/i.test(text)) return "energy_oil_gas";
   if (/\bCHIP|\bSEMICONDUCTOR|\bSOFTWARE|\bTECH\b/i.test(text)) return "tech_software";
-  if (/\bLUXURY|\bHIGH[\s-]?END\b/i.test(text)) return "luxury_consumer";
+  if (/\bLUXURY|\bJEWELL?ERY|\bWATCH(?:ES)?\b|\bHIGH[\s-]?END\b/i.test(text)) return "luxury_consumer";
   if (/\bFINANC|BANKING|INSURANCE\b/i.test(text)) return "financial";
   return "unknown";
 }
