@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { evaluateRequestSchema, parseRequestSchema } from "./schemas.js";
+import { evaluateRequestSchema, parseRequestSchema, shipmentTriageRequestSchema } from "./schemas.js";
 import { evaluateShipment } from "./riskEngine.js";
 import { parseShipmentText } from "./ai/parseShipment.js";
 import { COUNTRY_TIER } from "./data/countryRiskSeed.js";
 import { SERVER_DOTENV_PATH, dotenvLoadResult } from "./loadEnv.js";
 import { parseLlmCacheStats } from "./ai/parseLlmCache.js";
+import { runShipmentTriage } from "./service/shipmentTriage.js";
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/health", async () => ({ ok: true }));
@@ -29,6 +30,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     /** ISO2 → tier for seeded countries only. Others should render as unknown on the client. */
     tiers: COUNTRY_TIER,
   }));
+
+  /**
+   * Cross-app shipment triage (e.g. shypple-dashboard on localhost:3000).
+   * POL/POD: ISO2 country (NL) or UN/LOCODE (NLRTM). Goods: code OR description; code wins if both set.
+   */
+  app.post("/api/v1/shipment-triage", async (request, reply) => {
+    const parsed = shipmentTriageRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+    const out = runShipmentTriage(parsed.data);
+    if (!out.ok) {
+      return reply.status(400).send({ error: out.error, field: out.field });
+    }
+    return out.body;
+  });
 
   app.post("/api/evaluate", async (request, reply) => {
     const parsed = evaluateRequestSchema.safeParse(request.body);

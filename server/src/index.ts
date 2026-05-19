@@ -6,13 +6,18 @@ import { maybeStartSlack } from "./slack/bolt.js";
 import { SERVER_DOTENV_PATH, dotenvLoadResult } from "./loadEnv.js";
 
 const port = Number(process.env.PORT ?? 8787);
-const clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173";
+
+/** Comma-separated list; defaults allow local Vite UI + e.g. Next dashboard on :3000. */
+const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:3000")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 async function main(): Promise<void> {
   const app = Fastify({ logger: true });
 
   await app.register(cors, {
-    origin: clientOrigin,
+    origin: corsOrigins.length === 1 ? corsOrigins[0] : corsOrigins,
     methods: ["GET", "POST", "OPTIONS"],
   });
 

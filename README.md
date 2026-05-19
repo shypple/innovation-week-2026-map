@@ -18,8 +18,33 @@ npm run dev
 
 Environment variables for the API must live in **`server/.env`** (not the monorepo root). On startup the server logs whether `OPENAI_API_KEY` was loaded.
 
+**CORS:** by default **`http://localhost:5173`** and **`http://localhost:3000`** are allowed (e.g. shypple-dashboard). Override with a comma-separated `CORS_ORIGINS` in `server/.env`.
+
 - API: [http://localhost:8787](http://localhost:8787)
 - Web: [http://localhost:5173](http://localhost:5173)
+
+### HTTP service for other apps (shipment triage)
+
+`POST /api/v1/shipment-triage` — JSON body:
+
+| Field | Required | Notes |
+|--------|----------|--------|
+| `pol` | yes | Port/country of loading: ISO2 (`NL`) or UN/LOCODE-style (`NLRTM` → `NL`) |
+| `pod` | yes | Port/country of discharge (same rules) |
+| `goodsCode` | no | HS / commodity / control style code; **used instead of** `goodsDescription` when both are non-empty |
+| `goodsDescription` | no | Free-text goods description |
+| `parties` | no | String array (counterparty names); does not run watchlist screening in this demo |
+
+Response **`200`:** `{ "status": "success" \| "warning" \| "danger", "message": "...", "meta": { ... } }` — `meta` is optional detail (tier, ISO2 lane, rule ids).  
+**`400`:** invalid body or unparseable POL/POD — `{ "error": "...", "field"?: "pol" \| "pod" }`.
+
+Example:
+
+```bash
+curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
+  -H 'content-type: application/json' \
+  -d '{"pol":"NLRTM","pod":"CNSHA","goodsCode":"8471","parties":["Acme Ltd"]}' | jq
+```
 
 ### Optional: OpenAI-compatible parsing
 

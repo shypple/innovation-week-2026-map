@@ -54,3 +54,14 @@ export const parsedShipmentSchema = z.object({
 });
 
 export type ParsedShipment = z.infer<typeof parsedShipmentSchema>;
+
+/** External service: POL/POD shipment triage for dashboard integrations. */
+export const shipmentTriageRequestSchema = z.object({
+  pol: z.string().min(1).max(64),
+  pod: z.string().min(1).max(64),
+  goodsCode: z.string().max(128).optional(),
+  goodsDescription: z.string().max(4000).optional(),
+  parties: z.array(z.string().max(512)).max(100).optional(),
+});
+
+export type ShipmentTriageRequest = z.infer<typeof shipmentTriageRequestSchema>;

@@ -6,6 +6,7 @@ import {
   parseLlmCacheKey,
   parseLlmCacheSet,
 } from "./parseLlmCache.js";
+import { goodsBucketFromDescription } from "../goodsBucketHeuristics.js";
 
 function heuristicParse(text: string): ParsedShipment {
   const upper = text.toUpperCase();
@@ -32,12 +33,7 @@ function heuristicParse(text: string): ParsedShipment {
   ]);
   const isoCandidates = matches.filter((c) => !noise.has(c));
 
-  let goodsBucket: ParsedShipment["goodsBucket"] = "unknown";
-  if (/\bDUAL[\s-]?USE\b|\bEXPORT CONTROL/i.test(text)) goodsBucket = "dual_use";
-  else if (/\bMILITARY|\bDEFENSE|\bARMAMENT/i.test(text)) goodsBucket = "defense";
-  else if (/\bOIL|\bGAS|\bENERGY/i.test(text)) goodsBucket = "energy_oil_gas";
-  else if (/\bCHIP|\bSEMICONDUCTOR|\bSOFTWARE|\bTECH\b/i.test(text))
-    goodsBucket = "tech_software";
+  const goodsBucket = goodsBucketFromDescription(text);
 
   const destinationIso2 = isoCandidates.at(-1) ?? null;
 
