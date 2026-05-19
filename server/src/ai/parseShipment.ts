@@ -1,6 +1,11 @@
 import OpenAI from "openai";
 import type { ParseRequest, ParsedShipment } from "../schemas.js";
 import { parsedShipmentSchema } from "../schemas.js";
+import {
+  parseLlmCacheGet,
+  parseLlmCacheKey,
+  parseLlmCacheSet,
+} from "./parseLlmCache.js";
 
 function heuristicParse(text: string): ParsedShipment {
   const upper = text.toUpperCase();
@@ -119,6 +124,8 @@ export type ParseShipmentResult = {
   usedLlm: boolean;
   /** Present when an API key was configured but the LLM path did not produce a valid parse. */
   llmError?: string;
+  /** True when the structured parse was reused from memory (no new LLM request). */
+  llmCacheHit?: boolean;
 };
 
 export async function parseShipmentText(
@@ -142,9 +149,17 @@ export async function parseShipmentText(
     return { parsed, usedLlm: false };
   }
 
+  const model = env.model ?? "gpt-4o-mini";
+  const baseUrl = env.baseUrl ?? "https://api.openai.com/v1";
+  const cacheKey = parseLlmCacheKey(body, model, baseUrl);
+  const cached = parseLlmCacheGet(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const client = new OpenAI({
     apiKey,
-    baseURL: env.baseUrl ?? "https://api.openai.com/v1",
+    baseURL: baseUrl,
   });
 
   const userPayload = {
@@ -168,7 +183,7 @@ export async function parseShipmentText(
 
   try {
     const raw = await chatCompletionJson(client, {
-      model: env.model ?? "gpt-4o-mini",
+      model,
       messages,
       useJsonObjectFormat: true,
     });
@@ -182,6 +197,7 @@ export async function parseShipmentText(
     }
 
     const parsed = parsedShipmentSchema.parse(parseModelJson(raw));
+    parseLlmCacheSet(cacheKey, parsed);
     return { parsed, usedLlm: true };
   } catch (err) {
     const llmError = formatLlmError(err);

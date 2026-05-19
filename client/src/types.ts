@@ -29,6 +29,7 @@ export type EvaluateResponse = {
 export type ParseAndEvaluateResponse =
   | {
       usedLlm: boolean;
+      llmCacheHit?: boolean;
       parsed: {
         destinationIso2: string | null;
         originIso2: string | null;
@@ -42,6 +43,7 @@ export type ParseAndEvaluateResponse =
     }
   | {
       usedLlm: boolean;
+      llmCacheHit?: boolean;
       parsed: {
         destinationIso2: string | null;
         originIso2: string | null;

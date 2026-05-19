@@ -31,6 +31,7 @@ export default function App() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [usedLlm, setUsedLlm] = useState<boolean | null>(null);
+  const [llmCacheHit, setLlmCacheHit] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +68,7 @@ export default function App() {
       const data = (await res.json()) as EvaluateResponse;
       setEvaluate(data);
       setUsedLlm(null);
+      setLlmCacheHit(false);
     } catch {
       setStatus("Evaluate failed — check API logs.");
     } finally {
@@ -86,6 +88,7 @@ export default function App() {
       if (!res.ok) throw new Error(`parse ${res.status}`);
       const data = (await res.json()) as ParseAndEvaluateResponse;
       setUsedLlm(data.usedLlm);
+      setLlmCacheHit(Boolean(data.llmCacheHit));
       if (data.parsed.destinationIso2) {
         setDestinationIso2(data.parsed.destinationIso2);
       }
@@ -282,7 +285,8 @@ export default function App() {
                   </span>
                   {usedLlm !== null ? (
                     <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                      Parse: {usedLlm ? "LLM" : "heuristic"}
+                      Parse:{" "}
+                      {!usedLlm ? "heuristic" : llmCacheHit ? "LLM (cached)" : "LLM"}
                     </span>
                   ) : null}
                 </div>

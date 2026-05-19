@@ -4,6 +4,7 @@ import { evaluateShipment } from "./riskEngine.js";
 import { parseShipmentText } from "./ai/parseShipment.js";
 import { COUNTRY_TIER } from "./data/countryRiskSeed.js";
 import { SERVER_DOTENV_PATH, dotenvLoadResult } from "./loadEnv.js";
+import { parseLlmCacheStats } from "./ai/parseLlmCache.js";
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/health", async () => ({ ok: true }));
@@ -20,6 +21,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       openAiKeyLength: key?.length ?? 0,
       openAiBaseUrl: process.env.OPENAI_BASE_URL ?? null,
       openAiModel: process.env.OPENAI_MODEL ?? null,
+      parseLlmCache: parseLlmCacheStats(),
     };
   });
 
@@ -47,8 +49,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       baseUrl: process.env.OPENAI_BASE_URL,
       model: process.env.OPENAI_MODEL,
     };
-    const { parsed: shipment, usedLlm, llmError } = await parseShipmentText(env, parsed.data);
-    return { parsed: shipment, usedLlm, ...(llmError ? { llmError } : {}) };
+    const { parsed: shipment, usedLlm, llmError, llmCacheHit } = await parseShipmentText(env, parsed.data);
+    return {
+      parsed: shipment,
+      usedLlm,
+      ...(llmCacheHit ? { llmCacheHit } : {}),
+      ...(llmError ? { llmError } : {}),
+    };
   });
 
   app.post("/api/parse-and-evaluate", async (request, reply) => {
@@ -61,7 +68,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       baseUrl: process.env.OPENAI_BASE_URL,
       model: process.env.OPENAI_MODEL,
     };
-    const { parsed: shipment, usedLlm, llmError } = await parseShipmentText(env, parsed.data);
+    const { parsed: shipment, usedLlm, llmError, llmCacheHit } = await parseShipmentText(env, parsed.data);
 
     if (!shipment.destinationIso2) {
       return {
@@ -70,6 +77,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         evaluate: null,
         message:
           "Destination country not detected. Pick a country on the map or set ISO2 manually, then evaluate.",
+        ...(llmCacheHit ? { llmCacheHit } : {}),
         ...(llmError ? { llmError } : {}),
       };
     }
@@ -83,7 +91,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const evaluated = evaluateRequestSchema.safeParse(evaluateInput);
     if (!evaluated.success) {
-      return reply.status(400).send({ error: evaluated.error.flatten(), parsed: shipment, usedLlm });
+      return reply
+        .status(400)
+        .send({ error: evaluated.error.flatten(), parsed: shipment, usedLlm, ...(llmCacheHit ? { llmCacheHit } : {}) });
     }
 
     const result = evaluateShipment(evaluated.data);
@@ -91,6 +101,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       usedLlm,
       parsed: shipment,
       evaluate: { input: evaluated.data, result },
+      ...(llmCacheHit ? { llmCacheHit } : {}),
       ...(llmError ? { llmError } : {}),
     };
   });

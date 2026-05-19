@@ -34,6 +34,8 @@ OPENAI_MODEL=gpt-4o-mini
 
 Without a key, **parse** uses a lightweight heuristic fallback (still returns structured JSON).
 
+Repeated **identical** parse requests (same trimmed text, hints, model, and base URL) are served from an **in-memory LRU cache** by default so the LLM is not called again until the entry expires or is evicted. Tune with `PARSE_LLM_CACHE_MAX`, `PARSE_LLM_CACHE_TTL_MS`, or disable with `PARSE_LLM_CACHE_DISABLE=1` in `server/.env`. See **`GET /api/llm-status`** for `parseLlmCache` stats.
+
 ### Optional: Slack (Bolt)
 
 See `server/.env.example`. Start the API with Bolt enabled:
