@@ -4,6 +4,7 @@ import { evaluateShipment } from "./riskEngine.js";
 import { parseShipmentText } from "./ai/parseShipment.js";
 import { COUNTRY_TIER } from "./data/countryRiskSeed.js";
 import { SERVER_DOTENV_PATH, dotenvLoadResult } from "./loadEnv.js";
+import { goodsBucketLlmCacheStats } from "./ai/goodsBucketLlmCache.js";
 import { parseLlmCacheStats } from "./ai/parseLlmCache.js";
 import { runShipmentTriage } from "./service/shipmentTriage.js";
 
@@ -23,6 +24,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       openAiBaseUrl: process.env.OPENAI_BASE_URL ?? null,
       openAiModel: process.env.OPENAI_MODEL ?? null,
       parseLlmCache: parseLlmCacheStats(),
+      goodsBucketLlmCache: goodsBucketLlmCacheStats(),
     };
   });
 
@@ -40,7 +42,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return reply.status(400).send({ error: "Invalid request", details: parsed.error.flatten() });
     }
-    const out = runShipmentTriage(parsed.data);
+    const out = await runShipmentTriage(parsed.data);
     if (!out.ok) {
       return reply.status(400).send({ error: out.error, field: out.field });
     }

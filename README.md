@@ -35,8 +35,17 @@ Environment variables for the API must live in **`server/.env`** (not the monore
 | `goodsDescription` | no | Free-text goods description |
 | `parties` | no | String array (counterparty names); does not run watchlist screening in this demo |
 
-Response **`200`:** `{ "status": "success" \| "warning" \| "danger", "message": "...", "meta": { ... } }` — `meta` is optional detail (tier, ISO2 lane, rule ids).  
+Response **`200`:** `{ "status": "…", "message": "…" (short headline + lane only), "problematicGoods": […] }` when final **`goodsBucket`** is **unknown** — each hint links to the [EU Sanctions Map](https://www.sanctionsmap.eu/). **`meta`** includes `goodsBucket` (after optional LLM), `goodsBucketHeuristic` (code/description rules first), and optional `goodsLlm: { used, cacheHit? }` when an LLM classification ran or was served from the same LRU cache settings as parse (`PARSE_LLM_CACHE_*`).  
 **`400`:** invalid body or unparseable POL/POD — `{ "error": "...", "field"?: "pol" \| "pod" }`.
+
+**Goods LLM:** With `OPENAI_API_KEY` set, the service calls the LLM to refine `goodsBucket` when:
+
+- `SHIPMENT_TRIAGE_LLM_GOODS` is not `0` / `false`, and  
+- there is a non-empty `goodsCode` and/or `goodsDescription`, and  
+- **fallback** mode (default): heuristic bucket is **`unknown`**, or heuristic is **`general`** but a **description** was provided (so vague HS + text can be disambiguated); or  
+- **`always`** mode (`SHIPMENT_TRIAGE_LLM_GOODS_MODE=always`): always classify with the LLM when any goods field is present.
+
+Disable goods LLM only: `SHIPMENT_TRIAGE_LLM_GOODS=0`.
 
 Example:
 

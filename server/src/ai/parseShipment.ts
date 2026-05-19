@@ -7,6 +7,7 @@ import {
   parseLlmCacheSet,
 } from "./parseLlmCache.js";
 import { goodsBucketFromDescription } from "../goodsBucketHeuristics.js";
+import { chatCompletionJson, parseModelJson } from "./llmJsonUtils.js";
 
 function heuristicParse(text: string): ParsedShipment {
   const upper = text.toUpperCase();
@@ -51,50 +52,6 @@ const SYSTEM_PROMPT = `You extract structured shipping/sanctions triage fields f
 Return ONLY valid JSON matching the schema. Use ISO 3166-1 alpha-2 country codes in uppercase when you can infer a country.
 If unclear, use null for country fields and goodsBucket "unknown".
 confidence is 0..1. parties: organization or person names explicitly mentioned (max 10 short strings).`;
-
-/** Many models wrap JSON in markdown fences; some return prose before/after. */
-function parseModelJson(raw: string): unknown {
-  const trimmed = raw.trim();
-  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/m.exec(trimmed);
-  const candidate = fence ? fence[1].trim() : trimmed;
-  const objectStart = candidate.indexOf("{");
-  const objectEnd = candidate.lastIndexOf("}");
-  if (objectStart === -1 || objectEnd === -1 || objectEnd <= objectStart) {
-    throw new SyntaxError("No JSON object found in model output");
-  }
-  return JSON.parse(candidate.slice(objectStart, objectEnd + 1));
-}
-
-async function chatCompletionJson(
-  client: OpenAI,
-  params: {
-    model: string;
-    messages: OpenAI.Chat.ChatCompletionMessageParam[];
-    useJsonObjectFormat: boolean;
-  },
-): Promise<string | null> {
-  const base = {
-    model: params.model,
-    temperature: 0.1,
-    messages: params.messages,
-  } as const;
-
-  try {
-    const completion = await client.chat.completions.create({
-      ...base,
-      ...(params.useJsonObjectFormat ? { response_format: { type: "json_object" as const } } : {}),
-    });
-    return completion.choices[0]?.message?.content ?? null;
-  } catch (err) {
-    if (!params.useJsonObjectFormat) {
-      throw err;
-    }
-    // Gemini / some OpenAI-compatible servers reject or ignore json_object; retry without it.
-    console.warn("[parse] chat.completions with response_format failed, retrying without:", err);
-    const completion = await client.chat.completions.create(base);
-    return completion.choices[0]?.message?.content ?? null;
-  }
-}
 
 function truncate(msg: string, max = 480): string {
   return msg.length <= max ? msg : `${msg.slice(0, max)}…`;
