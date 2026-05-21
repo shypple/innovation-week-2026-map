@@ -17,9 +17,9 @@ type Props = {
 };
 
 function tierLabel(tier: RiskTier | undefined): string {
-  if (tier === "high") return "High restrictions (demo seed)";
-  if (tier === "elevated") return "Elevated restrictions (demo seed)";
-  return "Not in demo seed";
+  if (tier === "high") return "High restrictions (EU Sanctions Map)";
+  if (tier === "elevated") return "Elevated restrictions (EU Sanctions Map)";
+  return "Not listed on EU Sanctions Map";
 }
 
 function isSanctionedTier(tier: RiskTier | undefined): boolean {
@@ -89,9 +89,12 @@ export function CountryTooltip({ tooltip, hints, sanctionsMapUrl, onClose }: Pro
         {sanctioned ? (
           <>
             <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--muted)", lineHeight: 1.45 }}>
-              Goods categories often restricted or licensing-sensitive toward this jurisdiction — verify on the
-              EU Sanctions Map.
+              Restrictive measures on goods toward this country from the live EU Sanctions Map API. Verify on
+              the official map before acting.
             </p>
+            {hints.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>Loading measures…</p>
+            ) : null}
             <ul
               style={{
                 margin: 0,

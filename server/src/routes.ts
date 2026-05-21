@@ -3,11 +3,12 @@ import { evaluateRequestSchema, parseRequestSchema, shipmentTriageRequestSchema 
 import { evaluateShipment } from "./riskEngine.js";
 import { parseShipmentText } from "./ai/parseShipment.js";
 import { COUNTRY_TIER } from "./data/countryRiskSeed.js";
-import { EU_SANCTIONS_MAP_HOME, UNKNOWN_GOODS_EU_HINTS } from "./data/euSanctionsGoodsHints.js";
+import { EU_SANCTIONS_MAP_HOME } from "./data/euSanctionsGoodsHints.js";
 import { SERVER_DOTENV_PATH, dotenvLoadResult } from "./loadEnv.js";
 import { goodsBucketLlmCacheStats } from "./ai/goodsBucketLlmCache.js";
 import { parseLlmCacheStats } from "./ai/parseLlmCache.js";
 import { runShipmentTriage } from "./service/shipmentTriage.js";
+import { dedupeMeasureHits, getSanctionsMapIndex, hitsToProblematicGoods } from "./euSanctionsMap/index.js";
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/health", async () => ({ ok: true }));
@@ -29,15 +30,51 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/api/map-risk", async () => ({
-    /** ISO2 → tier for seeded countries only. Others should render as unknown on the client. */
-    tiers: COUNTRY_TIER,
-  }));
+  app.get("/api/map-risk", async () => {
+    const index = await getSanctionsMapIndex();
+    if (index) {
+      return {
+        tiers: index.countryTiers,
+        source: "eu-sanctions-map",
+        fetchedAt: index.fetchedAt,
+      };
+    }
+    return {
+      tiers: COUNTRY_TIER,
+      source: "fallback-seed",
+    };
+  });
 
-  app.get("/api/sanctions-goods-hints", async () => ({
-    sanctionsMapUrl: EU_SANCTIONS_MAP_HOME,
-    hints: UNKNOWN_GOODS_EU_HINTS,
-  }));
+  app.get<{ Querystring: { country?: string } }>("/api/sanctions-goods-hints", async (request) => {
+    const iso2 = request.query.country?.trim().toUpperCase().slice(0, 2);
+    const index = await getSanctionsMapIndex();
+
+    if (index && iso2) {
+      const hits = dedupeMeasureHits(index.countryMeasureHits.get(iso2) ?? []);
+      return {
+        sanctionsMapUrl: EU_SANCTIONS_MAP_HOME,
+        country: iso2,
+        source: "eu-sanctions-map",
+        fetchedAt: index.fetchedAt,
+        hints: hitsToProblematicGoods(hits, hits),
+      };
+    }
+
+    if (index) {
+      return {
+        sanctionsMapUrl: EU_SANCTIONS_MAP_HOME,
+        source: "eu-sanctions-map",
+        fetchedAt: index.fetchedAt,
+        hints: [],
+      };
+    }
+
+    return {
+      sanctionsMapUrl: EU_SANCTIONS_MAP_HOME,
+      source: "fallback-seed",
+      hints: [],
+    };
+  });
 
   /**
    * Cross-app shipment triage (e.g. shypple-dashboard on localhost:3000).

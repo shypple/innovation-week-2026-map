@@ -29,24 +29,10 @@ export default function App() {
     let cancelled = false;
     void (async () => {
       try {
-        const [mapRes, hintsRes] = await Promise.all([
-          fetch("/api/map-risk"),
-          fetch("/api/sanctions-goods-hints"),
-        ]);
+        const mapRes = await fetch("/api/map-risk");
         if (!mapRes.ok) throw new Error(`map-risk ${mapRes.status}`);
         const mapData = (await mapRes.json()) as { tiers: Record<string, RiskTier> };
         if (!cancelled) setTiers(mapData.tiers);
-
-        if (hintsRes.ok) {
-          const hintsData = (await hintsRes.json()) as {
-            hints: SanctionsGoodsHint[];
-            sanctionsMapUrl: string;
-          };
-          if (!cancelled) {
-            setGoodsHints(hintsData.hints);
-            setSanctionsMapUrl(hintsData.sanctionsMapUrl);
-          }
-        }
       } catch {
         if (!cancelled) setStatus("Could not load map data — is the API running on :8787?");
       }
@@ -65,6 +51,21 @@ export default function App() {
       clientX: payload.clientX,
       clientY: payload.clientY,
     });
+    setGoodsHints([]);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/sanctions-goods-hints?country=${encodeURIComponent(payload.iso2)}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          hints: SanctionsGoodsHint[];
+          sanctionsMapUrl: string;
+        };
+        setGoodsHints(data.hints ?? []);
+        if (data.sanctionsMapUrl) setSanctionsMapUrl(data.sanctionsMapUrl);
+      } catch {
+        /* keep empty hints */
+      }
+    })();
   }, []);
 
   const runParseAndEvaluate = useCallback(async () => {

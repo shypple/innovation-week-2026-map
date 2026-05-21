@@ -1,9 +1,12 @@
 import type { GoodsBucket, RiskTier } from "../schemas.js";
-import { evaluateShipment } from "../riskEngine.js";
 import { locationToIso2 } from "./locationToIso2.js";
 import type { ShipmentTriageRequest } from "../schemas.js";
-import { UNKNOWN_GOODS_EU_HINTS } from "../data/euSanctionsGoodsHints.js";
 import { resolveGoodsBucketWithLlm } from "./resolveGoodsBucketWithLlm.js";
+import {
+  evaluateLaneWithFallback,
+  getSanctionsMapIndex,
+  hitsToProblematicGoods,
+} from "../euSanctionsMap/index.js";
 
 export type ShipmentTriageStatus = "success" | "warning" | "danger";
 
@@ -17,12 +20,7 @@ export type ProblematicGoodsHint = {
 export type ShipmentTriageResponse = {
   status: ShipmentTriageStatus;
   message: string;
-  /**
-   * When goods code/description were not enough to classify the shipment,
-   * high-level categories that frequently appear in EU restrictive measures (cross-check on EU Sanctions Map).
-   */
   problematicGoods?: ProblematicGoodsHint[];
-  /** Optional diagnostics for integrators (same machine or trusted clients). */
   meta?: {
     tier: RiskTier;
     goodsBucket: string;
@@ -32,38 +30,32 @@ export type ShipmentTriageResponse = {
     podIso2: string;
     ruleIds: string[];
     summary: string;
+    mapSource?: "eu-sanctions-map" | "fallback-seed";
+    cargoMeasureLabels?: string[];
+    matchedMeasureCount?: number;
   };
 };
 
 export function tierToShipmentStatus(tier: RiskTier): ShipmentTriageStatus {
   if (tier === "high") return "danger";
-  if (tier === "elevated") return "warning";
-  /** Countries not in the demo seed are not elevated; only seeded hits warn or alert. */
+  if (tier === "elevated" || tier === "unknown") return "warning";
   return "success";
 }
 
-/** Short user-facing line only (headline + lane). Details live in `meta` / `problematicGoods`. */
-function buildMessage(status: ShipmentTriageStatus, polIso: string, podIso: string): string {
+function buildMessage(
+  status: ShipmentTriageStatus,
+  polIso: string,
+  podIso: string,
+  summary: string,
+): string {
   const headline =
     status === "danger"
-      ? "Elevated sanctions context: compliance review recommended before proceeding."
+      ? "EU Sanctions Map: compliance review recommended before proceeding."
       : status === "warning"
-        ? "Sanctions context warrants a closer look; confirm classification and lists."
-        : "No high-severity seeded hit for this lane and goods signal; routine checks still apply.";
+        ? "EU Sanctions Map: closer look advised for this lane and cargo."
+        : "No EU Sanctions Map goods match for this lane and cargo; routine checks still apply.";
 
-  return `${headline} Lane POL ${polIso} → POD ${podIso}.`;
-}
-
-function problematicGoodsForUnknownBucket(
-  goodsBucket: GoodsBucket,
-): ProblematicGoodsHint[] | undefined {
-  if (goodsBucket !== "unknown") return undefined;
-  return UNKNOWN_GOODS_EU_HINTS.map(({ id, label, note, sanctionsMapUrl }) => ({
-    id,
-    label,
-    note,
-    sanctionsMapUrl,
-  }));
+  return `${headline} Lane POL ${polIso} → POD ${podIso}. ${summary}`;
 }
 
 export async function runShipmentTriage(
@@ -83,16 +75,26 @@ export async function runShipmentTriage(
     goodsDescription: input.goodsDescription,
   });
 
-  const evaluate = evaluateShipment({
-    destinationIso2: pod.iso2,
-    originIso2: pol.iso2,
+  const mapIndex = await getSanctionsMapIndex();
+  const evaluation = evaluateLaneWithFallback(mapIndex, {
+    polIso2: pol.iso2,
+    podIso2: pod.iso2,
     goodsBucket,
-    parties: input.parties?.length ? input.parties : undefined,
+    goodsCode: input.goodsCode,
+    goodsDescription: input.goodsDescription,
   });
 
-  const status = tierToShipmentStatus(evaluate.tier);
-  const message = buildMessage(status, pol.iso2, pod.iso2);
-  const problematicGoods = problematicGoodsForUnknownBucket(goodsBucket);
+  const status = tierToShipmentStatus(evaluation.tier);
+  const message = buildMessage(status, pol.iso2, pod.iso2, evaluation.summary);
+
+  let problematicGoods: ProblematicGoodsHint[] | undefined;
+  if (status !== "success") {
+    if (evaluation.matchedMeasures.length > 0) {
+      problematicGoods = hitsToProblematicGoods(evaluation.podGoodsMeasures, evaluation.matchedMeasures);
+    } else if (evaluation.podGoodsMeasures.length > 0) {
+      problematicGoods = hitsToProblematicGoods(evaluation.podGoodsMeasures, evaluation.podGoodsMeasures);
+    }
+  }
 
   const goodsLlmMeta = goodsLlm.llmUsed
     ? { used: true, ...(goodsLlm.llmCacheHit ? { cacheHit: true as const } : {}) }
@@ -103,16 +105,19 @@ export async function runShipmentTriage(
     body: {
       status,
       message,
-      ...(problematicGoods ? { problematicGoods } : {}),
+      ...(problematicGoods?.length ? { problematicGoods } : {}),
       meta: {
-        tier: evaluate.tier,
+        tier: evaluation.tier,
         goodsBucket,
         goodsBucketHeuristic: goodsLlm.heuristicBucket,
         ...(goodsLlmMeta ? { goodsLlm: goodsLlmMeta } : {}),
         polIso2: pol.iso2,
         podIso2: pod.iso2,
-        ruleIds: evaluate.ruleIds,
-        summary: evaluate.summary,
+        ruleIds: evaluation.ruleIds,
+        summary: evaluation.summary,
+        mapSource: evaluation.mapSource,
+        cargoMeasureLabels: evaluation.cargoClassification.labels,
+        matchedMeasureCount: evaluation.matchedMeasures.length,
       },
     },
   };
