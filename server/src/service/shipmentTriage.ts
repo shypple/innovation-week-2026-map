@@ -38,7 +38,7 @@ export type ShipmentTriageResponse = {
 export function tierToShipmentStatus(tier: RiskTier): ShipmentTriageStatus {
   if (tier === "high") return "danger";
   if (tier === "elevated") return "warning";
-  if (tier === "unknown") return "warning";
+  /** Countries not in the demo seed are not elevated; only seeded hits warn or alert. */
   return "success";
 }
 
