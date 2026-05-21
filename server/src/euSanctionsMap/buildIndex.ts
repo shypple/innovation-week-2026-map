@@ -62,8 +62,22 @@ function tierForMeasureIds(ids: Set<number>): RiskTier {
   return "elevated";
 }
 
+function parseCountryNames(dataPayload: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  const rows = (dataPayload as { data?: { filters?: { data?: { countries?: { data?: { code?: string; title?: string }[] } } } } })
+    ?.data?.filters?.data?.countries?.data;
+  if (!Array.isArray(rows)) return out;
+  for (const row of rows) {
+    if (typeof row?.code === "string" && row.title) {
+      out.set(row.code.toUpperCase(), row.title);
+    }
+  }
+  return out;
+}
+
 export function buildSanctionsMapIndex(regimePayload: unknown, dataPayload: unknown, fetchedAt: number): SanctionsMapIndex {
   const measureTypes = parseMeasureTypes(dataPayload);
+  const countryNames = parseCountryNames(dataPayload);
   const countryMeasures = new Map<string, Set<number>>();
   const countryMeasureHits = new Map<string, CountryMeasureHit[]>();
   const regimes = asArray<Record<string, unknown>>(regimePayload, "data");
@@ -112,6 +126,7 @@ export function buildSanctionsMapIndex(regimePayload: unknown, dataPayload: unkn
     countryMeasures,
     countryTiers,
     countryMeasureHits,
+    countryNames,
   };
 }
 

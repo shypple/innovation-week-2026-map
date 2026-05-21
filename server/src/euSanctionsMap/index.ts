@@ -34,5 +34,6 @@ export async function getSanctionsMapIndex(options?: { forceRefresh?: boolean })
 }
 
 export { evaluateLaneWithFallback, evaluateLaneWithSanctionsMap, hitsToProblematicGoods } from "./evaluate.js";
+export { buildUserFriendlyTriageMessage, formatList } from "./userMessages.js";
 export { dedupeMeasureHits } from "./buildIndex.js";
 export type { SanctionsMapIndex, EuSanctionsLaneEvaluation, CountryMeasureHit } from "./types.js";

@@ -7,6 +7,7 @@ import {
   getSanctionsMapIndex,
   hitsToProblematicGoods,
 } from "../euSanctionsMap/index.js";
+import { buildUserFriendlyTriageMessage } from "../euSanctionsMap/userMessages.js";
 
 export type ShipmentTriageStatus = "success" | "warning" | "danger";
 
@@ -42,22 +43,6 @@ export function tierToShipmentStatus(tier: RiskTier): ShipmentTriageStatus {
   return "success";
 }
 
-function buildMessage(
-  status: ShipmentTriageStatus,
-  polIso: string,
-  podIso: string,
-  summary: string,
-): string {
-  const headline =
-    status === "danger"
-      ? "EU Sanctions Map: compliance review recommended before proceeding."
-      : status === "warning"
-        ? "EU Sanctions Map: closer look advised for this lane and cargo."
-        : "No EU Sanctions Map goods match for this lane and cargo; routine checks still apply.";
-
-  return `${headline} Lane POL ${polIso} → POD ${podIso}. ${summary}`;
-}
-
 export async function runShipmentTriage(
   input: ShipmentTriageRequest,
 ): Promise<
@@ -85,7 +70,13 @@ export async function runShipmentTriage(
   });
 
   const status = tierToShipmentStatus(evaluation.tier);
-  const message = buildMessage(status, pol.iso2, pod.iso2, evaluation.summary);
+  const message = buildUserFriendlyTriageMessage({
+    status,
+    polIso2: pol.iso2,
+    podIso2: pod.iso2,
+    evaluation,
+    mapIndex,
+  });
 
   let problematicGoods: ProblematicGoodsHint[] | undefined;
   if (status !== "success") {

@@ -23,6 +23,8 @@ export type SanctionsMapIndex = {
   countryTiers: Record<string, RiskTier>;
   /** ISO2 → full measure hits (for country tooltip). */
   countryMeasureHits: Map<string, CountryMeasureHit[]>;
+  /** ISO2 → English country name from EU Sanctions Map data API. */
+  countryNames: Map<string, string>;
 };
 
 export type CargoMeasureClassification = {
