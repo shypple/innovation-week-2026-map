@@ -6,18 +6,19 @@ Innovation Week presentation pack for Tudor's sanctions sense check in Shypple D
 |------|-----|
 | [HANDOUT.md](./HANDOUT.md) | One-page handout (print or export to PDF) |
 | [SPEAKER-NOTES.md](./SPEAKER-NOTES.md) | Three slides + speaker script |
-| [DASHBOARD-BANNERS.md](./DASHBOARD-BANNERS.md) | Exact banner strings, i18n keys, curl smoke tests |
+| [DASHBOARD-BANNERS.md](./DASHBOARD-BANNERS.md) | Banner titles, API message examples, curl smoke tests |
 
 **Product name:** Shypple Sanctions Assist (assistive triage, not a legal "checker").
 
-**Live demo:** Shypple Dashboard template booking + `POST /api/v1/shipment-triage` on `:8787`.
+**Data source:** Live [EU Sanctions Map](https://www.sanctionsmap.eu/) API (`/api/v1/regime` + `/api/v1/data`), cached on the sanctions-triage server (~6h).
 
-**Official reference:** [EU Sanctions Map](https://www.sanctionsmap.eu/)
+**Live demo:** Shypple Dashboard template booking + `POST /api/v1/shipment-triage` on `:8787`. Optional: standalone map at `:5173`.
+
+**Before presenting:** restart `npm run dev` in `sanctions-triage` and confirm `curl -s http://localhost:8787/api/map-risk | jq .source` returns `"eu-sanctions-map"`.
 
 Export handout to PDF (example):
 
 ```bash
-# From repo root, if you have pandoc installed:
 pandoc docs/demo/HANDOUT.md -o docs/demo/Shypple-Sanctions-Assist-handout.pdf
 ```
 

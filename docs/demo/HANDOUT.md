@@ -8,16 +8,16 @@ One-page handout for the company demo. Print or share as PDF.
 
 ## What is it?
 
-**Shypple Sanctions Assist** is an early warning built into booking. When someone starts a shipment from a template (or a quote), Shypple checks the **port pair** and **goods** (HS code, and description when needed) and shows a simple alert if compliance should take a closer look.
+**Shypple Sanctions Assist** is an early warning built into booking. When someone starts a shipment from a template (or a quote), Shypple checks the **destination**, **goods** (HS code and description when needed), and the **live [EU Sanctions Map](https://www.sanctionsmap.eu/)** data. It shows a plain-language alert only when the cargo appears to match **that country's listed goods restrictions**.
 
-It is **assistive triage**, not a legal clearance tool. It does not replace your compliance team or the official [EU Sanctions Map](https://www.sanctionsmap.eu/).
+It is **assistive triage**, not a legal clearance tool. It does not replace your compliance team or the official map.
 
 ---
 
 ## Why it matters
 
 - Sensitive lanes are easy to miss when teams move fast.
-- Sanctions risk depends on **where** goods go and **what** they are.
+- Sanctions risk depends on **where** goods go and **what** they are. China and Iran are not the same list.
 - Tudor asked for a check **at booking time**, before paperwork and costs pile up.
 
 ---
@@ -27,14 +27,21 @@ It is **assistive triage**, not a legal clearance tool. It does not replace your
 ```
 Pick template or quote  →  POL + POD + HS code
               ↓
-     Sanctions Assist runs in the background
+     Sanctions Assist loads live EU Sanctions Map data
               ↓
-   Green: no banner     Amber: look closer     Red: review recommended
+     Classify cargo (HS + rules, AI when ambiguous)
+              ↓
+     Match cargo to that destination's listed goods measures
+              ↓
+   No banner          Amber banner              Red banner
+   (no match)         (review advised)          (review recommended)
 ```
 
-**Rules** handle clear cases quickly (country route, HS chapter).
+**Live EU data:** each country has its **own** list of restricted goods categories (for example, China: mainly arms embargo; Russia: crude oil, luxury, dual-use, and more).
 
-**AI (LLM)** helps when commodity data is ambiguous: vague HS codes, sample shipments, or descriptions that rules alone cannot classify confidently.
+**Rules** map ports to countries and HS chapters to sanctions-map categories.
+
+**AI (LLM)** helps when the HS code or description is ambiguous.
 
 ---
 
@@ -42,57 +49,72 @@ Pick template or quote  →  POL + POD + HS code
 
 | Signal | Meaning for ops |
 |--------|------------------|
-| **No banner** | No high-severity hit in the demo dataset. Routine diligence still applies. |
-| **Amber banner** | Route and/or goods warrant a closer look. Confirm with compliance. |
-| **Red banner** | High-sensitivity lane and goods profile. Compliance review recommended before proceeding. |
+| **No banner** | No match between this cargo and the goods restrictions listed for that destination on the EU Sanctions Map. Routine checks still apply. |
+| **Amber banner** | Unclear cargo classification, or a softer match. Confirm HS code and description with compliance. |
+| **Red banner** | Cargo appears to match EU restrictive measures for that destination. Compliance review recommended before proceeding. |
 
-Banner title examples:
+Banner **title** (short):
 
 - Amber: **Sanctions sense check: closer look advised**
 - Red: **Sanctions sense check: review recommended**
 
-Each banner includes the lane (e.g. NL → CN) and, when known, a plain-language goods classification.
+Banner **body** (plain English from the API), for example:
+
+> Compliance review recommended before proceeding. Exporting luxury goods and gold, precious metals, diamonds to Syria may be prohibited or require a licence under EU sanctions. Please verify with your compliance team and the EU Sanctions Map.
 
 ---
 
-## Demo scenarios (for the live walkthrough)
+## Demo scenarios (live walkthrough)
 
-| Story | POL | POD | HS / goods | Expected |
-|-------|-----|-----|------------|----------|
-| Normal EU lane | NLRTM | DEHAM | Furniture / general HS | No banner |
-| Tech to China | NLRTM | CNSHA | 8471 (computers) | Amber |
-| Oil to Venezuela | NLRTM | VECCS | 271012 (light oils) | Red |
-| AI moment (optional) | NLRTM | CNSHA | Broad HS + description "CNC machine tools" | Amber or red; AI refines goods type |
+Use **UN/LOCODE** (`NLRTM`, `DEHAM`) or city names (`ROTTERDAM`, `HAMBURG`) for ports.
+
+| # | Story | POL | POD | HS / goods | Expected |
+|---|-------|-----|-----|------------|----------|
+| 1 | Normal EU lane | ROTTERDAM | HAMBURG | `0604209000` (plants) | **No banner** |
+| 2 | Tech to China (surprise) | NLRTM | CNSHA | `8471` (computers) | **No banner** (China lists arms, not general tech on the map) |
+| 3 | Arms to China | NLRTM | CNSHA | `930100` (military) | **Red banner** |
+| 4 | Oil to Russia | NLRTM | RULED | `271012` (light oils) | **Red banner** |
+| 5 | Luxury to Syria | NLRTM | SYDMS | `711319` (jewellery) | **Red banner** |
+| 6 | AI moment (optional) | NLRTM | CNSHA | Vague HS + description "CNC machine tools" | Depends on classification; good for showing AI |
+
+**Talking point for step 2:** the destination can be sanctioned without every shipment triggering an alert. That is the point of matching **cargo to the country's list**.
 
 ---
 
-## Rules + AI (for leadership and product)
+## Rules + AI + live map (for leadership)
 
 | Layer | Role |
 |-------|------|
-| **Deterministic rules** | Map ports to countries, apply demo country tiers, apply HS chapter heuristics, combine route + goods for green / amber / red. |
-| **AI classification** | When HS or description is unclear, the model assigns a goods category (energy, tech, luxury, dual-use, etc.) so the alert reflects real-world wording, not only the code on the form. |
-| **Human compliance** | Final decisions, list screening, and legal interpretation stay with people and official sources. |
+| **EU Sanctions Map API** | Live `/regime` + `/data` feeds; per-country goods measures; cached on the server (~6 hours). |
+| **Cargo classification** | HS chapter + goods bucket mapped to sanctions-map measure types (energy, arms, luxury, dual-use, etc.). |
+| **AI classification** | When HS or description is unclear, the model refines the goods category before matching. |
+| **Human compliance** | Final decisions, licensing, party screening, and legal interpretation stay with people and official sources. |
+
+---
+
+## Standalone map tool (optional in demo)
+
+Open `http://localhost:5173` to show the **EU sanctions choropleth** and **country-specific goods lists** loaded from the same live API when you click a highlighted country.
 
 ---
 
 ## What this demo is NOT
 
 - Not a definitive "sanctions checker" or pass/fail gate
-- Not live ingestion of every country-specific measure from the EU Sanctions Map (demo uses simplified seeds)
-- Not party or watchlist screening in this version
+- Not party or watchlist screening
 - Not legal advice
+- Not a substitute for reading the official measure text on the EU Sanctions Map
 
 ---
 
 ## Official reference
 
-Always cross-check on the [EU Sanctions Map](https://www.sanctionsmap.eu/). Country regimes differ widely (for example, measure lists for China vs Iran are not the same).
+Always cross-check on the [EU Sanctions Map](https://www.sanctionsmap.eu/). Country regimes differ widely (China vs Iran vs Syria are different lists).
 
 ---
 
 ## Closing line for the room
 
-> Tudor asked for a sanctions sense check when booking from templates. We deliver **rules for speed** and **AI for ambiguity**, with a clear signal in the dashboard so teams involve compliance **early**, not after the shipment is hard to unwind.
+> Tudor asked for a sanctions sense check at booking time. We use **live EU map data**, **rules for speed**, and **AI for ambiguity**, so ops see a **plain-language alert** only when the cargo looks like it hits **that country's listed goods restrictions**.
 
 **Questions?** Contact the Innovation Week demo team.

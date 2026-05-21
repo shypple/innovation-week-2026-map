@@ -1,65 +1,92 @@
 # Dashboard banner copy: Shypple Sanctions Assist
 
-Exact strings for **shypple-dashboard** and the **sanctions-triage** API messages shown in booking flows.
+Exact strings for **shypple-dashboard** and the **sanctions-triage** API shown in booking flows.
 
-Implementation reference: `shypple-dashboard/src/components/SearchAndBook/SanctionsTriageBanner.tsx`
+Implementation reference:
 
-i18n keys live under `search_and_book.sanctions_triage.*`. Defaults below are used when no translation file overrides them.
+- Banner UI: `shypple-dashboard/src/components/SearchAndBook/SanctionsTriageBanner.tsx`
+- User-facing messages: `server/src/euSanctionsMap/userMessages.ts`
+- Triage logic: `server/src/service/shipmentTriage.ts`
 
 ---
 
 ## Banner titles (component)
 
-| Status | i18n key | Recommended default string |
-|--------|----------|----------------------------|
+| Status | i18n key | Default string |
+|--------|----------|----------------|
 | `warning` | `search_and_book.sanctions_triage.warning_title` | **Sanctions sense check: closer look advised** |
 | `danger` | `search_and_book.sanctions_triage.danger_title` | **Sanctions sense check: review recommended** |
 
-Avoid "Sanctions checker" in titles. Use **sense check** or **Sanctions Assist**.
+The **body** comes from the API field `message` (plain English). The banner may append `Goods classification: …` from `meta.goodsBucket`.
 
 ---
 
-## Banner body (from API `message` + optional goods line)
+## API `message` examples (live EU Sanctions Map)
 
-The API returns a short `message`. The banner appends goods classification when `meta.goodsBucket` is present.
+### `success` (no banner in dashboard)
 
-### API messages (`server/src/service/shipmentTriage.ts`)
+No banner is shown. Example message if you call the API directly:
 
-| Status | Server `message` (headline + lane) |
-|--------|-------------------------------------|
-| `success` | No banner shown in dashboard |
-| `warning` | `Sanctions context warrants a closer look; confirm classification and lists. Lane POL {pol} → POD {pod}.` |
-| `danger` | `Elevated sanctions context: compliance review recommended before proceeding. Lane POL {pol} → POD {pod}.` |
+> No EU Sanctions Map goods restrictions apply to this destination (Germany) for the cargo described. Routine compliance checks still apply.
 
-Optional friendlier API copy for a future tweak (not required for demo):
+### `warning`
 
-| Status | Alternative message |
-|--------|---------------------|
-| `warning` | `This route and goods profile may need extra compliance review. Lane POL {pol} → POD {pod}.` |
-| `danger` | `This route and goods profile match a high-sensitivity pattern. Compliance review recommended. Lane POL {pol} → POD {pod}.` |
+> Please confirm what you are shipping. Iran has EU sanctions on several goods categories, but we could not classify this cargo from the information provided. Check the HS code and description with your compliance team.
 
-### Goods line (component append)
+### `danger`
 
-| i18n key | Template | Example |
-|----------|----------|---------|
-| `search_and_book.sanctions_triage.goods_bucket` | `Goods classification: {{label}}.` | `Goods classification: Technology / software.` |
+> Compliance review recommended before proceeding. Exporting luxury goods and gold, precious metals, diamonds to Syria may be prohibited or require a licence under EU sanctions. Please verify with your compliance team and the EU Sanctions Map.
 
-### Goods bucket labels (`sanctionsShipmentTriage.ts`)
+> Compliance review recommended before proceeding. Exporting arms and military equipment to China may be prohibited or require a licence under EU sanctions. Please verify with your compliance team and the EU Sanctions Map.
 
-| Bucket | Label shown in banner |
-|--------|------------------------|
-| `general` | General cargo |
-| `dual_use` | Dual-use / export-control sensitive |
-| `defense` | Defense / military |
-| `energy_oil_gas` | Energy (oil & gas) |
-| `financial` | Financial / services |
-| `luxury_consumer` | Luxury / consumer (sanctions-sensitive categories) |
-| `tech_software` | Technology / software |
-| `unknown` | Unknown / not classified |
+> Compliance review recommended before proceeding. Exporting crude oil, petrol products, and oil refining to Russia may be prohibited or require a licence under EU sanctions. Please verify with your compliance team and the EU Sanctions Map.
+
+### `success` on a sanctioned country (important demo beat)
+
+> Based on the EU Sanctions Map, this cargo does not appear to match the goods restrictions currently listed for China. Routine compliance checks still apply.
 
 ---
 
-## Problematic goods popover (when `goodsBucket` is `unknown`)
+## Full banner examples (title + body as the user reads them)
+
+### No banner: Rotterdam → Hamburg, plants
+
+*(Nothing shown in dashboard.)*
+
+### No banner: NL → CN, HS 8471 (computers)
+
+*(Nothing shown.)*  
+Good demo beat: destination has sanctions, but cargo does not match China's **listed** goods measures.
+
+### Red: NL → CN, HS 930100 (military)
+
+**Title:** Sanctions sense check: review recommended
+
+**Body:** Compliance review recommended before proceeding. Exporting arms and military equipment to China may be prohibited or require a licence under EU sanctions. Please verify with your compliance team and the EU Sanctions Map. Goods classification: Defense / military.
+
+### Red: NL → RU, HS 271012 (oil)
+
+**Title:** Sanctions sense check: review recommended
+
+**Body:** Compliance review recommended before proceeding. Exporting crude oil, petrol products, and oil refining to Russia may be prohibited or require a licence under EU sanctions…
+
+### Red: NL → SY, HS 711319 (jewellery)
+
+**Title:** Sanctions sense check: review recommended
+
+**Body:** Compliance review recommended before proceeding. Exporting luxury goods and gold, precious metals, diamonds to Syria may be prohibited or require a licence under EU sanctions…
+
+### Amber: unknown cargo to sanctioned country
+
+**Title:** Sanctions sense check: closer look advised
+
+**Body:** Please confirm what you are shipping. [Country] has EU sanctions on several goods categories, but we could not classify this cargo…
+
+**Popover:** country-specific `problematicGoods` from the live map (not a generic global list).
+
+---
+
+## `problematicGoods` popover
 
 | i18n key | Default string |
 |----------|----------------|
@@ -67,49 +94,63 @@ Optional friendlier API copy for a future tweak (not required for demo):
 | `search_and_book.sanctions_triage.goods_heading` | Goods categories often relevant under EU measures |
 | `search_and_book.sanctions_triage.eu_sanctions_map` | EU Sanctions Map |
 
-Link target: `https://www.sanctionsmap.eu/`
+Items are **country-specific** measures from the live API when available.
 
 ---
 
-## Full banner examples (as the user reads them)
+## curl smoke tests (presenter laptop)
 
-### Amber: NLRTM → CNSHA, HS 8471
+```bash
+# Green: NL → DE
+curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
+  -H 'content-type: application/json' \
+  -d '{"pol":"ROTTERDAM","pod":"HAMBURG","goodsCode":"0604209000"}' | jq '.status, .message'
 
-**Title:** Sanctions sense check: closer look advised
+# Green surprise: NL → CN computers (live map: no tech match for CN)
+curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
+  -H 'content-type: application/json' \
+  -d '{"pol":"NLRTM","pod":"CNSHA","goodsCode":"8471"}' | jq '.status, .message'
 
-**Body:** Sanctions context warrants a closer look; confirm classification and lists. Lane POL NL → POD CN. Goods classification: Technology / software.
+# Red: NL → CN arms
+curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
+  -H 'content-type: application/json' \
+  -d '{"pol":"NLRTM","pod":"CNSHA","goodsCode":"930100"}' | jq '.status, .message'
 
-### Red: NLRTM → VECCS, HS 271012
+# Red: NL → RU oil
+curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
+  -H 'content-type: application/json' \
+  -d '{"pol":"NLRTM","pod":"RULED","goodsCode":"271012"}' | jq '.status, .message'
 
-**Title:** Sanctions sense check: review recommended
+# Red: NL → SY luxury
+curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
+  -H 'content-type: application/json' \
+  -d '{"pol":"NLRTM","pod":"SYDMS","goodsCode":"711319"}' | jq '.status, .message'
 
-**Body:** Elevated sanctions context: compliance review recommended before proceeding. Lane POL NL → POD VE. Goods classification: Energy (oil & gas).
+# Country-specific map hints (for standalone UI)
+curl -s 'http://localhost:8787/api/sanctions-goods-hints?country=CN' | jq '.source, .hints[].label'
 
-### Amber with unknown goods (popover)
-
-**Title:** Sanctions sense check: closer look advised
-
-**Body:** … Lane POL NL → POD IR. Goods classification: Unknown / not classified. **View goods categories to review** (opens popover with dual-use, arms, energy, etc., plus EU Sanctions Map link).
+# Confirm live map loaded
+curl -s http://localhost:8787/api/map-risk | jq '.source, .fetchedAt'
+```
 
 ---
 
-## Optional: AI indicator (not in UI today)
-
-For a technical appendix slide or dev-only tooltip, the API exposes:
+## AI diagnostics (technical appendix only)
 
 ```json
 "meta": {
-  "goodsBucket": "tech_software",
-  "goodsBucketHeuristic": "general",
-  "goodsLlm": { "used": true, "cacheHit": false }
+  "goodsBucket": "defense",
+  "goodsBucketHeuristic": "defense",
+  "goodsLlm": { "used": true, "cacheHit": false },
+  "mapSource": "eu-sanctions-map",
+  "matchedMeasureCount": 1,
+  "cargoMeasureLabels": ["Arms embargo"]
 }
 ```
 
-Suggested future banner footnote (product decision):
+Suggested future footnote (product decision):
 
 > Goods category refined with AI from your description.
-
-Do not show this to general ops users unless you explain it clearly.
 
 ---
 
@@ -124,30 +165,6 @@ Config: `window.shyppleConfig.sanctionsTriageUrl` (e.g. `http://localhost:8787` 
 
 ---
 
-## curl smoke tests (presenter laptop)
-
-```bash
-# Amber
-curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
-  -H 'content-type: application/json' \
-  -d '{"pol":"NLRTM","pod":"CNSHA","goodsCode":"8471"}' | jq '.status, .message, .meta.goodsBucket'
-
-# Red
-curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
-  -H 'content-type: application/json' \
-  -d '{"pol":"NLRTM","pod":"VECCS","goodsCode":"271012"}' | jq '.status, .message, .meta.goodsBucket'
-
-# AI path (heuristic general/unknown + description)
-curl -s -X POST http://localhost:8787/api/v1/shipment-triage \
-  -H 'content-type: application/json' \
-  -d '{"pol":"NLRTM","pod":"CNSHA","goodsCode":"9999","goodsDescription":"CNC machine tools for factory upgrade"}' \
-  | jq '.status, .meta.goodsBucketHeuristic, .meta.goodsBucket, .meta.goodsLlm'
-```
-
----
-
 ## Footer disclaimer (optional under banner)
-
-Short version for a future `Typography` caption:
 
 > Assistive only. Not legal advice. Confirm with compliance and the EU Sanctions Map.
